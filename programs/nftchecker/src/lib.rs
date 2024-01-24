@@ -4,7 +4,7 @@ use anchor_spl::{
     metadata::{Metadata, MetadataAccount, MasterEditionAccount}, 
     associated_token::AssociatedToken
 };
-
+use anchor_lang::prelude::error_code;
 
 declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
@@ -13,9 +13,8 @@ pub mod nftchecker {
     use super::*;
 
     pub fn nft_checker(ctx: Context<NftChecker>) -> Result<()> {
-        ctx.accounts.nft_checker(&ctx.bumps)?;
+        ctx.accounts.nft_checker()?;
         msg!("This nft is from a collection");
-
         Ok(())
     }
 }
@@ -31,14 +30,6 @@ pub struct NftChecker<'info> {
         associated_token::authority = owner
     )]
     owner_ata: InterfaceAccount<'info, TokenAccount>,
-    #[account(
-        init,
-        payer = owner,
-        space = OwnerData::INIT_SPACE,
-        seeds = [owner.key().as_ref(), nft.key().as_ref()],
-        bump
-    )]
-    data: Account<'info, OwnerData>,
     #[account(
         seeds = [
             b"metadata",
@@ -69,23 +60,41 @@ pub struct NftChecker<'info> {
 }
 
 impl<'info> NftChecker<'info> {
-    pub fn nft_checker(&mut self, bumps: &NftCheckerBumps) -> Result<()> {
-        self.data.set_inner(OwnerData {
-            owner: self.owner.key(),
-            mint: self.nft.key(),
-            bump: bumps.data,
-        });
-        Ok(())
+    pub fn nft_checker(&mut self) -> Result<()> {
+        validate_nft!(
+            self.metadata.collection, 
+            self.collection_mint
+            );
+            Ok(())
     }
 }
 
-#[account]
-pub struct OwnerData {
-    pub owner: Pubkey,
-    pub mint: Pubkey,
-    pub bump: u8,
+#[error_code]
+pub enum Error {
+    #[msg("Collection Not Set")]
+    CollectionNotSet,
+    #[msg("Invalid Collection")]
+    InvalidCollection,
+
 }
 
-impl Space for OwnerData {
-    const INIT_SPACE: usize = 8 + 32 + 32 + 8 + 1;
+#[macro_export]
+macro_rules! validate_nft {
+    ($metadata:expr,$collection_mint:expr) => {
+        require!(
+            $metadata.is_some(),
+            Error::CollectionNotSet
+        );
+
+        require_keys_eq!(
+            $metadata.clone().unwrap().key,
+            $collection_mint.key(),
+            Error::InvalidCollection
+        );
+
+        require!(
+            $metadata.clone().unwrap().verified,
+            Error::InvalidCollection
+        );
+    };
 }
